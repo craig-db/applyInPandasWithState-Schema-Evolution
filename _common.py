@@ -79,5 +79,9 @@ for w in parameters:
 
 # COMMAND ----------
 
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {my_name}") 
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC

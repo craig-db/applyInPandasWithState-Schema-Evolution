@@ -9,7 +9,7 @@ dbutils.widgets.text("checkpoint_iteration", "0", "State Version")
 dbutils.widgets.text("safety_run_duration", "0.25", "How long to run (in hours) using MERGE")
 dbutils.widgets.text("starting_version", "0", "'Start at' Delta version of source")
 dbutils.widgets.text("maxFilesPerTrigger", "1", "Max input files per trigger")
-dbutils.widgets.dropdown("debug_mode", "False", ["True", "False"], "Debug Mode")
+dbutils.widgets.dropdown("debug_mode", "True", ["True", "False"], "Debug Mode")
 
 # COMMAND ----------
 
@@ -195,10 +195,12 @@ if debug_mode: display(out_df)
 
 # COMMAND ----------
 
+# DBTITLE 1,Ensure our MERGE target (Delta table) has an evolving schema
 spark.sql("SET spark.databricks.delta.schema.autoMerge.enabled = true") 
 
 # COMMAND ----------
 
+# DBTITLE 1,Set a "safety" duration after which the stream will switch from MERGE to append
 import datetime
 ts_start = datetime.datetime.now()
 dt_end = ts_start + datetime.timedelta(hours=safety_run_duration)
@@ -216,10 +218,12 @@ def safe_period_passed():
 
 # COMMAND ----------
 
+# DBTITLE 1,Create checkpoint dir
 dbutils.fs.mkdirs(f"{checkpoint_root}/{checkpoint_iteration}")
 
 # COMMAND ----------
 
+# DBTITLE 1,The function used in applyInPandasWithState
 def feb_func(batch_df: DataFrame, batch_id: int):
   if checkpoint_iteration < 1 or safe_period_passed():
     if debug_mode: print(f"Using append for batch {batch_id}")
@@ -244,11 +248,19 @@ def feb_func(batch_df: DataFrame, batch_id: int):
         WHEN NOT MATCHED THEN INSERT * 
     """)
 
+# COMMAND ----------
+
+# DBTITLE 1,Run the foreachBatch stream
 # Write the output of a streaming aggregation query into Delta table
 out_df.writeStream \
     .option("checkpointLocation", f"{checkpoint_root}/{checkpoint_iteration}") \
     .foreachBatch(feb_func) \
     .start()
+
+# COMMAND ----------
+
+# DBTITLE 1,You can periodically inspect the target/sink with this query
+# display(spark.sql(f"select * from {silver_table} order by statevalue_0 asc, id desc"))
 
 # COMMAND ----------
 
